@@ -255,20 +255,26 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
 
     const resolveConfigs = async () => {
       try {
+        const sortedConfigs = [...configs].sort((a, b) => a.theia_buttonposition - b.theia_buttonposition);
         const newConfigs = await Promise.all(
-          configs
-            .filter(config => !config.theia_visibilityexpression ||
-              expressionEvaluator?.evaluate(config.theia_visibilityexpression))
-            .sort((a, b) => a.theia_buttonposition - b.theia_buttonposition)
-            .map(async (config) => ({
+          sortedConfigs.map(async (config) => {
+            const resolvedConfig = {
               ...config,
               theia_buttonlabel: await asyncReplaceDynamicValues(config.theia_buttonlabel),
               theia_buttontooltip: await asyncReplaceDynamicValues(config.theia_buttontooltip),
               theia_url: await asyncReplaceDynamicValues(config.theia_url),
-              theia_actionscript: await asyncReplaceDynamicValues(config.theia_actionscript)
-            }))
+              theia_actionscript: await asyncReplaceDynamicValues(config.theia_actionscript),
+              theia_visibilityexpression: await asyncReplaceDynamicValues(config.theia_visibilityexpression)
+            };
+
+            // Only include buttons that pass visibility check
+            const isVisible = !resolvedConfig.theia_visibilityexpression ||
+              expressionEvaluator?.evaluate(resolvedConfig.theia_visibilityexpression);
+
+            return { ...resolvedConfig, isVisible };
+          })
         );
-        setResolvedConfigs(newConfigs);
+        setResolvedConfigs(newConfigs.filter(config => config.isVisible));
       } catch (error) {
         console.error('Error resolving configs:', error);
         setError('Failed to process button configurations');
