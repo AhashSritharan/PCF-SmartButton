@@ -2,6 +2,14 @@ import * as React from "react";
 import { DefaultButton, TooltipHost, Link, FontIcon, MessageBar, MessageBarType } from "@fluentui/react";
 import { ExpressionEvaluator } from "./ExpressionEvaluator";
 
+// Add types to window object for global record cache
+type RecordCache = Record<string, {
+  record?: Record<string, any>;
+  promise?: Promise<Record<string, any>>;
+}>;
+
+(window as any).recordCache = (window as any).recordCache || {};
+
 /**
  * Configuration interface for Smart Button control
  * Defines the structure of button settings stored in Dataverse
@@ -73,28 +81,35 @@ const ButtonRenderer = React.memo(ButtonRendererBase);
  * Error boundary component to catch and handle rendering errors gracefully
  * Prevents the entire control from crashing when a button fails to render
  */
-const ErrorBoundary: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [hasError, setHasError] = React.useState(false);
-
-  React.useEffect(() => {
-    const errorHandler = (error: ErrorEvent) => {
-      console.error('Error caught by boundary:', error);
-      setHasError(true);
-    };
-    window.addEventListener('error', errorHandler);
-    return () => window.removeEventListener('error', errorHandler);
-  }, []);
-
-  if (hasError) {
-    return (
-      <MessageBar messageBarType={MessageBarType.error}>
-        An error occurred while rendering the buttons. Please refresh the page.
-      </MessageBar>
-    );
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
   }
 
-  return <>{children}</>;
-};
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
+    console.error('Error caught by boundary:', error, errorInfo);
+  }
+
+  render(): React.ReactNode {
+    if (this.state.hasError) {
+      return (
+        <MessageBar messageBarType={MessageBarType.error}>
+          An error occurred while rendering the buttons. Please refresh the page.
+        </MessageBar>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 /**
  * Main SmartButton component that manages button configurations and rendering
@@ -113,7 +128,6 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [expressionEvaluator, setExpressionEvaluator] = React.useState<ExpressionEvaluator | null>(null);
-  const [relatedRecords, setRelatedRecords] = React.useState<Record<string, any>>({});
   const [resolvedConfigs, setResolvedConfigs] = React.useState<ButtonConfig[]>([]);
 
   /**
@@ -122,38 +136,56 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
   type CachedRecord = Record<string, any>;
 
   /**
-   * Cache for all retrieved records to prevent duplicate fetches
+   * Gets a record from cache if it exists or its pending promise
    */
-  const recordCache = React.useRef<Record<string, CachedRecord>>({});
-
-  /**
-   * Caches a record with its entity type and ID
-   */
-  const cacheRecord = (entityName: string, recordId: string, record: CachedRecord): void => {
+  const getFromGlobalCache = (entityName: string, recordId: string): { record?: Record<string, any>; promise?: Promise<Record<string, any>> } => {
     const cacheKey = `${entityName}:${recordId}`;
-    recordCache.current[cacheKey] = record;
+    return (window as any).recordCache[cacheKey] || {};
   };
 
   /**
-   * Gets a record from cache if it exists
+   * Sets a record or promise in the global cache
    */
-  const getCachedRecord = (entityName: string, recordId: string): CachedRecord | null => {
+  const setInGlobalCache = (entityName: string, recordId: string, value: { record?: Record<string, any>; promise?: Promise<Record<string, any>> }): void => {
     const cacheKey = `${entityName}:${recordId}`;
-    return recordCache.current[cacheKey] || null;
+    (window as any).recordCache[cacheKey] = value;
   };
 
   /**
-   * Enhanced record retrieval with caching
+   * Enhanced record retrieval with global caching and request deduplication
    */
   const retrieveRecordWithCache = async (entityName: string, recordId: string): Promise<CachedRecord> => {
-    const cached = getCachedRecord(entityName, recordId);
-    if (cached) {
-      return cached;
+    const cached = getFromGlobalCache(entityName, recordId);
+
+    // Return cached record if available
+    if (cached.record) {
+      return cached.record;
     }
 
-    const record = await context.webAPI.retrieveRecord(entityName, recordId);
-    cacheRecord(entityName, recordId, record);
-    return record;
+    // Return existing promise if request is pending
+    if (cached.promise) {
+      return cached.promise;
+    }
+
+    // Create new promise for the record retrieval
+    const promise = context.webAPI.retrieveRecord(entityName, recordId)
+      .then(record => {
+        // Store the actual record in cache
+        setInGlobalCache(entityName, recordId, { record });
+        return record;
+      })
+      .catch(error => {
+        // Clear failed promise from cache
+        const cached = getFromGlobalCache(entityName, recordId);
+        if (cached.promise === promise) {
+          setInGlobalCache(entityName, recordId, {});
+        }
+        throw error;
+      });
+
+    // Store the promise in cache
+    setInGlobalCache(entityName, recordId, { promise });
+    return promise;
   };
 
   /**
@@ -210,12 +242,6 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
   const fetchRelatedRecord = async (lookupPath: string[]): Promise<Record<string, any> | null> => {
     if (!record || lookupPath.length === 0) return null;
 
-    // Check cache first
-    const cacheKey = lookupPath.join('.');
-    if (relatedRecords[cacheKey]) {
-      return relatedRecords[cacheKey];
-    }
-
     try {
       let currentRecord = record;
       let result: Record<string, any> | null = null;
@@ -236,11 +262,7 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
         result = nextLevel.record;
       }
 
-      if (result) {
-        setRelatedRecords(prev => ({ ...prev, [cacheKey]: result }));
-      }
       return result;
-
     } catch (error) {
       console.error('Error retrieving related record for', lookupPath.join('.'), error);
       return null;
