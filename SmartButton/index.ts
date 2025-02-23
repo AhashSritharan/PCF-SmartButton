@@ -1,6 +1,7 @@
 import { IInputs, IOutputs } from "./generated/ManifestTypes";
 import { SmartButton, ButtonConfig } from "./SmartButton";
 import * as React from "react";
+import { MessageBar, MessageBarType } from "@fluentui/react";
 
 /**
  * Context information provided by the PCF framework
@@ -83,11 +84,11 @@ const ButtonsWrapper: React.FC<ButtonsWrapperProps> = ({
     );
 
     if (error) {
-        return React.createElement("div", { role: "alert" }, `Error: ${error}`);
+        return React.createElement(MessageBar, { messageBarType: MessageBarType.error }, `Error: ${error}`);
     }
 
     if (isLoading) {
-        return React.createElement("div", { role: "status" }, "Loading buttons...");
+        return React.createElement(MessageBar, { messageBarType: MessageBarType.info }, "Loading buttons...");
     }
 
     return React.createElement(SmartButton, {
