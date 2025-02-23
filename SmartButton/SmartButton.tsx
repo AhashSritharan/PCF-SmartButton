@@ -150,21 +150,27 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
    */
   const fetchRelatedRecord = async (lookupField: string) => {
     if (!record) return;
-    const lookup = record[lookupField] as { id?: string; value?: string; entityType?: string; logicalName?: string; };
-    if (lookup && typeof lookup === 'object') {
-      const lookupId = lookup.id ?? lookup.value;
-      const lookupEntity = lookup.entityType ?? lookup.logicalName;
-      if (lookupId && lookupEntity && typeof lookupId === 'string' && typeof lookupEntity === 'string') {
-        try {
-          const result = await context.webAPI.retrieveRecord(lookupEntity, lookupId);
-          setRelatedRecords(prev => ({ ...prev, [lookupField]: result }));
-        } catch (error) {
-          console.error('Error retrieving related record for', lookupField, error);
-        }
+    // Handle the case where we want the ID directly
+    const lookupIdField = `_${lookupField}_value`;
+    const lookupLogicalNameField = `_${lookupField}_value@Microsoft.Dynamics.CRM.lookuplogicalname`;
+
+    const lookupId = record[lookupIdField];
+    const lookupEntity = record[lookupLogicalNameField];
+
+    if (lookupId && lookupEntity && typeof lookupId === 'string' && typeof lookupEntity === 'string') {
+      try {
+        const result = await context.webAPI.retrieveRecord(lookupEntity, lookupId);
+        setRelatedRecords(prev => ({ ...prev, [lookupField]: result }));
+      } catch (error) {
+        console.error('Error retrieving related record for', lookupField, error);
       }
     }
   };
 
+  /**
+   * Replaces dynamic field references in text with actual values
+   * Supports both direct and related record field references
+   */
   /**
    * Replaces dynamic field references in text with actual values
    * Supports both direct and related record field references
@@ -181,10 +187,17 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
 
       if (token.includes('.')) {
         const [lookupField, relatedField] = token.split('.');
-        if (!relatedRecords[lookupField]) {
-          await fetchRelatedRecord(lookupField);
+
+        // Special handling for ID field
+        if (relatedField.toLowerCase() === 'id') {
+          value = record[`_${lookupField}_value`] ?? fullMatch;
+        } else {
+          // For other fields, fetch the related record if needed
+          if (!relatedRecords[lookupField]) {
+            await fetchRelatedRecord(lookupField);
+          }
+          value = relatedRecords[lookupField]?.[relatedField] ?? fullMatch;
         }
-        value = relatedRecords[lookupField]?.[relatedField] ?? fullMatch;
       } else {
         value = record[token] ?? fullMatch;
       }
