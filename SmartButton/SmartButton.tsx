@@ -16,6 +16,7 @@ export interface ButtonConfig {
   theia_visibilityexpression?: string;
   theia_showaslink: boolean;
   theia_actionscript?: string;
+  isVisible?: boolean;  // Added to support visibility state
 }
 
 /**
@@ -116,6 +117,46 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
   const [resolvedConfigs, setResolvedConfigs] = React.useState<ButtonConfig[]>([]);
 
   /**
+   * Type definition for cached records
+   */
+  type CachedRecord = Record<string, any>;
+
+  /**
+   * Cache for all retrieved records to prevent duplicate fetches
+   */
+  const recordCache = React.useRef<Record<string, CachedRecord>>({});
+
+  /**
+   * Caches a record with its entity type and ID
+   */
+  const cacheRecord = (entityName: string, recordId: string, record: CachedRecord): void => {
+    const cacheKey = `${entityName}:${recordId}`;
+    recordCache.current[cacheKey] = record;
+  };
+
+  /**
+   * Gets a record from cache if it exists
+   */
+  const getCachedRecord = (entityName: string, recordId: string): CachedRecord | null => {
+    const cacheKey = `${entityName}:${recordId}`;
+    return recordCache.current[cacheKey] || null;
+  };
+
+  /**
+   * Enhanced record retrieval with caching
+   */
+  const retrieveRecordWithCache = async (entityName: string, recordId: string): Promise<CachedRecord> => {
+    const cached = getCachedRecord(entityName, recordId);
+    if (cached) {
+      return cached;
+    }
+
+    const record = await context.webAPI.retrieveRecord(entityName, recordId);
+    cacheRecord(entityName, recordId, record);
+    return record;
+  };
+
+  /**
    * Fetches the main record data and initializes the expression evaluator
    */
   const fetchRecord = React.useCallback(async () => {
@@ -127,7 +168,7 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
         return;
       }
 
-      const result = await context.webAPI.retrieveRecord(entityName, recordId);
+      const result = await retrieveRecordWithCache(entityName, recordId);
       setRecord(result);
       setExpressionEvaluator(new ExpressionEvaluator(result, context));
     } catch (error) {
@@ -156,7 +197,7 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
     const entity = currentRecord[logicalNameField];
 
     if (id && entity && typeof id === 'string' && typeof entity === 'string') {
-      const record = await context.webAPI.retrieveRecord(entity, id);
+      const record = await retrieveRecordWithCache(entity, id);
       return { record, entity };
     }
     return null;
@@ -256,25 +297,29 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
     const resolveConfigs = async () => {
       try {
         const sortedConfigs = [...configs].sort((a, b) => a.theia_buttonposition - b.theia_buttonposition);
-        const newConfigs = await Promise.all(
-          sortedConfigs.map(async (config) => {
-            const resolvedConfig = {
-              ...config,
-              theia_buttonlabel: await asyncReplaceDynamicValues(config.theia_buttonlabel),
-              theia_buttontooltip: await asyncReplaceDynamicValues(config.theia_buttontooltip),
-              theia_url: await asyncReplaceDynamicValues(config.theia_url),
-              theia_actionscript: await asyncReplaceDynamicValues(config.theia_actionscript),
-              theia_visibilityexpression: await asyncReplaceDynamicValues(config.theia_visibilityexpression)
-            };
+        const newConfigs: ButtonConfig[] = [];
 
-            // Only include buttons that pass visibility check
-            const isVisible = !resolvedConfig.theia_visibilityexpression ||
-              expressionEvaluator?.evaluate(resolvedConfig.theia_visibilityexpression);
+        // Process configs sequentially to prevent parallel record retrievals
+        for (const config of sortedConfigs) {
+          const resolvedConfig = {
+            ...config,
+            theia_buttonlabel: await asyncReplaceDynamicValues(config.theia_buttonlabel),
+            theia_buttontooltip: await asyncReplaceDynamicValues(config.theia_buttontooltip),
+            theia_url: await asyncReplaceDynamicValues(config.theia_url),
+            theia_actionscript: await asyncReplaceDynamicValues(config.theia_actionscript),
+            theia_visibilityexpression: await asyncReplaceDynamicValues(config.theia_visibilityexpression)
+          };
 
-            return { ...resolvedConfig, isVisible };
-          })
-        );
-        setResolvedConfigs(newConfigs.filter(config => config.isVisible));
+          // Only include buttons that pass visibility check
+          const isVisible = !resolvedConfig.theia_visibilityexpression ||
+            expressionEvaluator?.evaluate(resolvedConfig.theia_visibilityexpression);
+
+          if (isVisible) {
+            newConfigs.push({ ...resolvedConfig, isVisible });
+          }
+        }
+
+        setResolvedConfigs(newConfigs);
       } catch (error) {
         console.error('Error resolving configs:', error);
         setError('Failed to process button configurations');

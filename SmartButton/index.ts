@@ -22,7 +22,16 @@ interface ButtonsWrapperProps {
 }
 
 /**
- * Custom hook to fetch and manage button configurations
+ * Cache for button configurations
+ */
+const buttonConfigCache = new Map<string, {
+    configs: ButtonConfig[];
+    timestamp: number;
+    filter: string;
+}>();
+
+/**
+ * Custom hook to fetch and manage button configurations with caching
  * @param context - PCF context
  * @param entityName - Name of the current entity
  * @param buttonFilter - Optional filter for button configurations
@@ -40,6 +49,19 @@ const useFetchButtonConfigs = (
     React.useEffect(() => {
         const fetchConfigs = async () => {
             try {
+                const cacheKey = `${entityName}:${buttonFilter}`;
+                const cached = buttonConfigCache.get(cacheKey);
+                const cacheTimeout = 5 * 60 * 1000; // 5 minutes cache timeout
+
+                // Return cached configs if they exist and are not expired
+                if (cached &&
+                    cached.filter === buttonFilter &&
+                    Date.now() - cached.timestamp < cacheTimeout) {
+                    setButtonConfigs(cached.configs);
+                    setIsLoading(false);
+                    return;
+                }
+
                 let filter = `theia_tablename eq '${entityName}' and statecode eq 0`;
                 if (buttonFilter) {
                     filter += ` and ${buttonFilter}`;
@@ -52,7 +74,16 @@ const useFetchButtonConfigs = (
                     query
                 );
 
-                setButtonConfigs(result.entities as ButtonConfig[]);
+                const configs = result.entities as ButtonConfig[];
+
+                // Cache the results
+                buttonConfigCache.set(cacheKey, {
+                    configs: configs,
+                    timestamp: Date.now(),
+                    filter: buttonFilter
+                });
+
+                setButtonConfigs(configs);
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : 'Failed to fetch button configurations';
                 setError(errorMessage);
