@@ -132,21 +132,28 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
   const [resolvedConfigs, setResolvedConfigs] = React.useState<ButtonConfig[]>([]);
   const [saveCounter, setSaveCounter] = React.useState(0); // Add counter to trigger re-renders
 
+  // Add a ref to track all fetched record keys
+  const fetchedRecordKeys = React.useRef<Set<string>>(new Set());
+
   // Add save event handler
   React.useEffect(() => {
     const handlePostSave = () => {
-      (window as any).recordCache = {};
-      setSaveCounter(prev => prev + 1); // Increment counter to trigger re-render
+      console.debug(`[Cache] Form saved, clearing ${fetchedRecordKeys.current.size} cached records`);
+      const cache = (window as any).recordCache as Record<string, CacheEntry>;
+      // Only clear records that this instance has fetched
+      fetchedRecordKeys.current.forEach(key => {
+        console.debug(`[Cache] Clearing saved record ${key}`);
+        delete cache[key];
+      });
+      setSaveCounter(prev => prev + 1);
     };
 
     try {
       const formContext = (window as any).Xrm?.Page?.data?.entity;
       if (formContext?.addOnPostSave) {
-        // Store the handler reference for proper cleanup
         const handler = () => handlePostSave();
         formContext.addOnPostSave(handler);
         return () => {
-          // Cleanup event handler
           if (formContext.removeOnPostSave) {
             formContext.removeOnPostSave(handler);
           }
@@ -157,15 +164,20 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
     }
   }, []); // Empty dependency array as we only want to set up the handler once
 
-  // Add cleanup for cache on unmount
+  // Add cleanup for cache on unmount with complete record tracking
   React.useEffect(() => {
     return () => {
-      // Clean up only the records fetched for this instance
       const cache = (window as any).recordCache as Record<string, CacheEntry>;
-      const keysToClean = Object.keys(cache).filter(key => key.startsWith(`${entityName}:`));
-      keysToClean.forEach(key => delete cache[key]);
+      console.debug(`[Cache] Cleaning up ${fetchedRecordKeys.current.size} records`);
+      // Clean up all records that were fetched during this component's lifetime
+      fetchedRecordKeys.current.forEach(key => {
+        if (cache[key]?.isLoading) {
+          console.debug(`[Cache] Removing pending request for ${key}`);
+        }
+        delete cache[key];
+      });
     };
-  }, [entityName]);
+  }, []);
 
   /**
    * Type definition for cached records
@@ -185,6 +197,12 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
     const RETRY_DELAY = 100; // milliseconds
     const cacheKey = `${entityName}:${recordId}`;
     const cache = (window as any).recordCache as Record<string, CacheEntry>;
+
+    // Track this record key immediately when the request is made
+    if (!fetchedRecordKeys.current.has(cacheKey)) {
+      console.debug(`[Cache] Tracking new record ${cacheKey}`);
+      fetchedRecordKeys.current.add(cacheKey);
+    }
 
     console.debug(`[Cache] Retrieving ${cacheKey}, retry: ${retryCount}, state:`, cache[cacheKey]);
 
@@ -219,7 +237,13 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
       cache[cacheKey] = { record };
       return record;
     } catch (error) {
-      console.error(`[Cache] Fetch failed for ${cacheKey}:`, error);
+      console.error(`[Cache] Fetch failed for ${cacheKey}:`, {
+        error,
+        entityName,
+        recordId,
+        retryCount,
+        stackTrace: new Error().stack
+      });
       delete cache[cacheKey];
       throw error;
     }
@@ -266,6 +290,10 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
     const entity = currentRecord[logicalNameField];
 
     if (id && entity && typeof id === 'string' && typeof entity === 'string') {
+      const cacheKey = `${entity}:${id}`;
+      // Track this related record key
+      fetchedRecordKeys.current.add(cacheKey);
+
       const record = await retrieveRecordWithCache(entity, id);
       return { record, entity };
     }
