@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 import * as React from "react";
 import { DefaultButton, TooltipHost, Link, FontIcon, MessageBar, MessageBarType } from "@fluentui/react";
 import { ExpressionEvaluator } from "./ExpressionEvaluator";
@@ -129,63 +130,99 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
   const [error, setError] = React.useState<string | null>(null);
   const [expressionEvaluator, setExpressionEvaluator] = React.useState<ExpressionEvaluator | null>(null);
   const [resolvedConfigs, setResolvedConfigs] = React.useState<ButtonConfig[]>([]);
+  const [saveCounter, setSaveCounter] = React.useState(0); // Add counter to trigger re-renders
+
+  // Add save event handler
+  React.useEffect(() => {
+    const handlePostSave = () => {
+      (window as any).recordCache = {};
+      setSaveCounter(prev => prev + 1); // Increment counter to trigger re-render
+    };
+
+    try {
+      const formContext = (window as any).Xrm?.Page?.data?.entity;
+      if (formContext?.addOnPostSave) {
+        // Store the handler reference for proper cleanup
+        const handler = () => handlePostSave();
+        formContext.addOnPostSave(handler);
+        return () => {
+          // Cleanup event handler
+          if (formContext.removeOnPostSave) {
+            formContext.removeOnPostSave(handler);
+          }
+        };
+      }
+    } catch (error) {
+      console.warn('Failed to add post save handler:', error);
+    }
+  }, []); // Empty dependency array as we only want to set up the handler once
+
+  // Add cleanup for cache on unmount
+  React.useEffect(() => {
+    return () => {
+      // Clean up only the records fetched for this instance
+      const cache = (window as any).recordCache as Record<string, CacheEntry>;
+      const keysToClean = Object.keys(cache).filter(key => key.startsWith(`${entityName}:`));
+      keysToClean.forEach(key => delete cache[key]);
+    };
+  }, [entityName]);
 
   /**
    * Type definition for cached records
    */
   type CachedRecord = Record<string, any>;
 
-  /**
-   * Gets a record from cache if it exists or its pending promise
-   */
-  const getFromGlobalCache = (entityName: string, recordId: string): { record?: Record<string, any>; promise?: Promise<Record<string, any>> } => {
-    const cacheKey = `${entityName}:${recordId}`;
-    return (window as any).recordCache[cacheKey] || {};
-  };
-
-  /**
-   * Sets a record or promise in the global cache
-   */
-  const setInGlobalCache = (entityName: string, recordId: string, value: { record?: Record<string, any>; promise?: Promise<Record<string, any>> }): void => {
-    const cacheKey = `${entityName}:${recordId}`;
-    (window as any).recordCache[cacheKey] = value;
-  };
+  interface CacheEntry {
+    record?: Record<string, any>;
+    isLoading?: boolean;
+  }
 
   /**
    * Enhanced record retrieval with global caching and request deduplication
    */
-  const retrieveRecordWithCache = async (entityName: string, recordId: string): Promise<CachedRecord> => {
-    const cached = getFromGlobalCache(entityName, recordId);
+  const retrieveRecordWithCache = async (entityName: string, recordId: string, retryCount = 0): Promise<CachedRecord> => {
+    const MAX_RETRIES = 5;
+    const RETRY_DELAY = 100; // milliseconds
+    const cacheKey = `${entityName}:${recordId}`;
+    const cache = (window as any).recordCache as Record<string, CacheEntry>;
 
-    // Return cached record if available
-    if (cached.record) {
-      return cached.record;
+    console.debug(`[Cache] Retrieving ${cacheKey}, retry: ${retryCount}, state:`, cache[cacheKey]);
+
+    if (cache[cacheKey]?.record) {
+      console.debug(`[Cache] Hit for ${cacheKey}`);
+      return cache[cacheKey].record!;
     }
 
-    // Return existing promise if request is pending
-    if (cached.promise) {
-      return cached.promise;
-    }
-
-    // Create new promise for the record retrieval
-    const promise = context.webAPI.retrieveRecord(entityName, recordId)
-      .then(record => {
-        // Store the actual record in cache
-        setInGlobalCache(entityName, recordId, { record });
-        return record;
-      })
-      .catch(error => {
-        // Clear failed promise from cache
-        const cached = getFromGlobalCache(entityName, recordId);
-        if (cached.promise === promise) {
-          setInGlobalCache(entityName, recordId, {});
+    if (cache[cacheKey]?.isLoading) {
+      console.debug(`[Cache] Loading in progress for ${cacheKey}`);
+      if (retryCount >= MAX_RETRIES) {
+        console.warn(`[Cache] Max retries reached for ${cacheKey}, forcing new request`);
+        delete cache[cacheKey];
+      } else {
+        try {
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * (retryCount + 1)));
+          return await retrieveRecordWithCache(entityName, recordId, retryCount + 1);
+        } catch (error) {
+          console.error(`[Cache] Retry failed for ${cacheKey}`, error);
+          delete cache[cacheKey];
+          throw error;
         }
-        throw error;
-      });
+      }
+    }
 
-    // Store the promise in cache
-    setInGlobalCache(entityName, recordId, { promise });
-    return promise;
+    console.debug(`[Cache] Miss for ${cacheKey}, fetching...`);
+    cache[cacheKey] = { isLoading: true };
+
+    try {
+      const record = await context.webAPI.retrieveRecord(entityName, recordId);
+      console.debug(`[Cache] Fetch success for ${cacheKey}`);
+      cache[cacheKey] = { record };
+      return record;
+    } catch (error) {
+      console.error(`[Cache] Fetch failed for ${cacheKey}:`, error);
+      delete cache[cacheKey];
+      throw error;
+    }
   };
 
   /**
@@ -211,7 +248,7 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
     } finally {
       setIsLoading(false);
     }
-  }, [context, entityName, recordId]);
+  }, [context, entityName, recordId, saveCounter]); // Add saveCounter to dependencies
 
   // Fetch record effect
   React.useEffect(() => {
