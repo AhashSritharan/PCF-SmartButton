@@ -1,0 +1,282 @@
+import * as React from "react";
+import { DefaultButton, TooltipHost, Link, FontIcon, MessageBar, MessageBarType } from "@fluentui/react";
+import { ExpressionEvaluator } from "./ExpressionEvaluator";
+
+/**
+ * Configuration interface for Smart Button control
+ * Defines the structure of button settings stored in Dataverse
+ */
+export interface ButtonConfig {
+  theia_buttonlabel: string;
+  theia_url: string;
+  theia_buttonposition: number;
+  theia_buttontooltip?: string;
+  theia_tablename: string;
+  theia_buttonicon?: string;
+  theia_visibilityexpression?: string;
+  theia_showaslink: boolean;
+  theia_actionscript?: string;
+}
+
+/**
+ * Props for the SmartButton component
+ */
+interface SmartButtonProps {
+  configs: ButtonConfig[];
+  context: ComponentFramework.Context<any>;
+  recordId: string;
+  entityName: string;
+}
+
+/**
+ * Props for the ButtonRenderer component
+ */
+interface ButtonRendererProps {
+  config: ButtonConfig;  // Use the full ButtonConfig type since we're passing the entire config object
+  onClick: () => void;
+}
+
+// Define the component first, then memoize it
+const ButtonRendererBase: React.FC<ButtonRendererProps> = ({ config, onClick }) => {
+  return (
+    config.theia_showaslink ? (
+      <Link href={config.theia_url} target="_blank" rel="noopener noreferrer">
+        {config.theia_buttonlabel}
+      </Link>
+    ) : (
+      <DefaultButton
+        onClick={onClick}
+        styles={{
+          root: {
+            minWidth: 'auto',
+            padding: '0 12px',
+            margin: 0
+          }
+        }}
+      >
+        {config.theia_buttonicon && (
+          <FontIcon
+            iconName={config.theia_buttonicon}
+            style={{ marginRight: 8, fontSize: 16 }}
+          />
+        )}
+        <span>{config.theia_buttonlabel}</span>
+      </DefaultButton>
+    )
+  );
+};
+
+const ButtonRenderer = React.memo(ButtonRendererBase);
+
+/**
+ * Error boundary component to catch and handle rendering errors gracefully
+ * Prevents the entire control from crashing when a button fails to render
+ */
+const ErrorBoundary: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [hasError, setHasError] = React.useState(false);
+
+  React.useEffect(() => {
+    const errorHandler = (error: ErrorEvent) => {
+      console.error('Error caught by boundary:', error);
+      setHasError(true);
+    };
+    window.addEventListener('error', errorHandler);
+    return () => window.removeEventListener('error', errorHandler);
+  }, []);
+
+  if (hasError) {
+    return (
+      <MessageBar messageBarType={MessageBarType.error}>
+        An error occurred while rendering the buttons. Please refresh the page.
+      </MessageBar>
+    );
+  }
+
+  return <>{children}</>;
+};
+
+/**
+ * Main SmartButton component that manages button configurations and rendering
+ * Features:
+ * - Dynamic button visibility based on record field values
+ * - Caching of record data for performance
+ * - Support for related record field references
+ * - Custom action script execution
+ */
+
+export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, recordId, entityName }) => {
+  /**
+   * Component state
+   */
+  const [record, setRecord] = React.useState<Record<string, any> | null>(null);
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const [expressionEvaluator, setExpressionEvaluator] = React.useState<ExpressionEvaluator | null>(null);
+  const [relatedRecords, setRelatedRecords] = React.useState<Record<string, any>>({});
+  const [resolvedConfigs, setResolvedConfigs] = React.useState<ButtonConfig[]>([]);
+
+  /**
+   * Fetches the main record data and initializes the expression evaluator
+   */
+  const fetchRecord = React.useCallback(async () => {
+    try {
+      const validRecordId = recordId && recordId !== "00000000-0000-0000-0000-000000000000";
+      if (!validRecordId) {
+        setRecord({});
+        setExpressionEvaluator(new ExpressionEvaluator({}, context));
+        return;
+      }
+
+      const result = await context.webAPI.retrieveRecord(entityName, recordId);
+      setRecord(result);
+      setExpressionEvaluator(new ExpressionEvaluator(result, context));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setError(errorMessage);
+      setRecord({});
+      setExpressionEvaluator(new ExpressionEvaluator({}, context));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [context, entityName, recordId]);
+
+  // Fetch record effect
+  React.useEffect(() => {
+    void fetchRecord();
+  }, [fetchRecord]);
+
+  /**
+   * Fetches a related record when its fields are referenced in button configurations
+   */
+  const fetchRelatedRecord = async (lookupField: string) => {
+    if (!record) return;
+    const lookup = record[lookupField] as { id?: string; value?: string; entityType?: string; logicalName?: string; };
+    if (lookup && typeof lookup === 'object') {
+      const lookupId = lookup.id ?? lookup.value;
+      const lookupEntity = lookup.entityType ?? lookup.logicalName;
+      if (lookupId && lookupEntity && typeof lookupId === 'string' && typeof lookupEntity === 'string') {
+        try {
+          const result = await context.webAPI.retrieveRecord(lookupEntity, lookupId);
+          setRelatedRecords(prev => ({ ...prev, [lookupField]: result }));
+        } catch (error) {
+          console.error('Error retrieving related record for', lookupField, error);
+        }
+      }
+    }
+  };
+
+  /**
+   * Replaces dynamic field references in text with actual values
+   * Supports both direct and related record field references
+   */
+  const asyncReplaceDynamicValues = async (text: string | undefined): Promise<string> => {
+    if (!text || !record) return '';
+    const regex = /\{([^}]+)\}/g;
+    let newText = text;
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(text)) !== null) {
+      const [fullMatch, token] = match;
+      let value;
+
+      if (token.includes('.')) {
+        const [lookupField, relatedField] = token.split('.');
+        if (!relatedRecords[lookupField]) {
+          await fetchRelatedRecord(lookupField);
+        }
+        value = relatedRecords[lookupField]?.[relatedField] ?? fullMatch;
+      } else {
+        value = record[token] ?? fullMatch;
+      }
+
+      newText = newText.replace(fullMatch, String(value));
+    }
+
+    return newText;
+  };
+
+  /**
+   * Processes button configurations:
+   * - Filters based on visibility expressions
+   * - Sorts by position
+   * - Resolves dynamic values
+   */
+  React.useEffect(() => {
+    if (!record) return;
+
+    const resolveConfigs = async () => {
+      try {
+        const newConfigs = await Promise.all(
+          configs
+            .filter(config => !config.theia_visibilityexpression ||
+              expressionEvaluator?.evaluate(config.theia_visibilityexpression))
+            .sort((a, b) => a.theia_buttonposition - b.theia_buttonposition)
+            .map(async (config) => ({
+              ...config,
+              theia_buttonlabel: await asyncReplaceDynamicValues(config.theia_buttonlabel),
+              theia_buttontooltip: await asyncReplaceDynamicValues(config.theia_buttontooltip),
+              theia_url: await asyncReplaceDynamicValues(config.theia_url),
+              theia_actionscript: await asyncReplaceDynamicValues(config.theia_actionscript)
+            }))
+        );
+        setResolvedConfigs(newConfigs);
+      } catch (error) {
+        console.error('Error resolving configs:', error);
+        setError('Failed to process button configurations');
+      }
+    };
+
+    void resolveConfigs();
+  }, [record, configs, expressionEvaluator]);
+
+  /**
+   * Handles button clicks:
+   * - Executes custom action scripts if provided
+   * - Opens URLs in new tab otherwise
+   */
+  const handleClick = async (url: string | undefined, actionScript: string | undefined) => {
+    if (actionScript && expressionEvaluator) {
+      try {
+        const parsedScript = await asyncReplaceDynamicValues(actionScript);
+        await expressionEvaluator.safeExecute(parsedScript);
+      } catch (error) {
+        console.error('Error executing action script:', error);
+      }
+    } else if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  if (error) {
+    return <MessageBar messageBarType={MessageBarType.error}>{error}</MessageBar>;
+  }
+
+  if (isLoading) {
+    return <MessageBar messageBarType={MessageBarType.info}>Loading buttons...</MessageBar>;
+  }
+
+  return (
+    <ErrorBoundary>
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '8px',
+        padding: '4px'
+      }}>
+        {resolvedConfigs.map((config, index) => (
+          <TooltipHost
+            content={config.theia_buttontooltip}
+            key={`${config.theia_buttonlabel}_${index}`}
+          >
+            <ButtonRenderer
+              config={config}
+              onClick={() => {
+                void handleClick(config.theia_url, config.theia_actionscript);
+              }}
+            />
+          </TooltipHost>
+        ))}
+      </div>
+    </ErrorBoundary>
+  );
+};
