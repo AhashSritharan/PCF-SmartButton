@@ -146,34 +146,69 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
   }, [fetchRecord]);
 
   /**
-   * Fetches a related record when its fields are referenced in button configurations
+   * Helper function to fetch a single level of related record
    */
-  const fetchRelatedRecord = async (lookupField: string) => {
-    if (!record) return;
-    // Handle the case where we want the ID directly
-    const lookupIdField = `_${lookupField}_value`;
-    const lookupLogicalNameField = `_${lookupField}_value@Microsoft.Dynamics.CRM.lookuplogicalname`;
+  const fetchSingleLevelRecord = async (currentRecord: any, field: string): Promise<{ record: any; entity: string } | null> => {
+    const idField = `_${field}_value`;
+    const logicalNameField = `_${field}_value@Microsoft.Dynamics.CRM.lookuplogicalname`;
 
-    const lookupId = record[lookupIdField];
-    const lookupEntity = record[lookupLogicalNameField];
+    const id = currentRecord[idField];
+    const entity = currentRecord[logicalNameField];
 
-    if (lookupId && lookupEntity && typeof lookupId === 'string' && typeof lookupEntity === 'string') {
-      try {
-        const result = await context.webAPI.retrieveRecord(lookupEntity, lookupId);
-        setRelatedRecords(prev => ({ ...prev, [lookupField]: result }));
-      } catch (error) {
-        console.error('Error retrieving related record for', lookupField, error);
+    if (id && entity && typeof id === 'string' && typeof entity === 'string') {
+      const record = await context.webAPI.retrieveRecord(entity, id);
+      return { record, entity };
+    }
+    return null;
+  };
+
+  /**
+   * Fetches a related record when its fields are referenced in button configurations
+   * Supports nested lookups by recursively fetching related records
+   */
+  const fetchRelatedRecord = async (lookupPath: string[]): Promise<Record<string, any> | null> => {
+    if (!record || lookupPath.length === 0) return null;
+
+    // Check cache first
+    const cacheKey = lookupPath.join('.');
+    if (relatedRecords[cacheKey]) {
+      return relatedRecords[cacheKey];
+    }
+
+    try {
+      let currentRecord = record;
+      let result: Record<string, any> | null = null;
+
+      // Handle first level
+      const firstLevel = await fetchSingleLevelRecord(currentRecord, lookupPath[0]);
+      if (!firstLevel) return null;
+
+      result = firstLevel.record;
+      currentRecord = firstLevel.record;
+
+      // Handle additional levels if they exist
+      for (let i = 1; i < lookupPath.length; i++) {
+        const nextLevel = await fetchSingleLevelRecord(currentRecord, lookupPath[i]);
+        if (!nextLevel) break;
+
+        currentRecord = nextLevel.record;
+        result = nextLevel.record;
       }
+
+      if (result) {
+        setRelatedRecords(prev => ({ ...prev, [cacheKey]: result }));
+      }
+      return result;
+
+    } catch (error) {
+      console.error('Error retrieving related record for', lookupPath.join('.'), error);
+      return null;
     }
   };
 
   /**
    * Replaces dynamic field references in text with actual values
-   * Supports both direct and related record field references
-   */
-  /**
-   * Replaces dynamic field references in text with actual values
-   * Supports both direct and related record field references
+   * Supports both direct and nested lookup field references
    */
   const asyncReplaceDynamicValues = async (text: string | undefined): Promise<string> => {
     if (!text || !record) return '';
@@ -186,17 +221,18 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
       let value;
 
       if (token.includes('.')) {
-        const [lookupField, relatedField] = token.split('.');
+        const parts = token.split('.');
+        const lookupPath = parts.slice(0, -1);
+        const finalField = parts[parts.length - 1];
 
         // Special handling for ID field
-        if (relatedField.toLowerCase() === 'id') {
-          value = record[`_${lookupField}_value`] ?? fullMatch;
+        if (finalField.toLowerCase() === 'id') {
+          const lookupIdField = `_${lookupPath[0]}_value`;
+          value = record[lookupIdField] ?? fullMatch;
         } else {
-          // For other fields, fetch the related record if needed
-          if (!relatedRecords[lookupField]) {
-            await fetchRelatedRecord(lookupField);
-          }
-          value = relatedRecords[lookupField]?.[relatedField] ?? fullMatch;
+          // For other fields, fetch the related records through the lookup chain
+          const relatedRecord = await fetchRelatedRecord(lookupPath);
+          value = relatedRecord?.[finalField] ?? fullMatch;
         }
       } else {
         value = record[token] ?? fullMatch;
