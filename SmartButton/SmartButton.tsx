@@ -138,11 +138,8 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
   // Add save event handler
   React.useEffect(() => {
     const handlePostSave = () => {
-      console.debug(`[Cache] Form saved, clearing ${fetchedRecordKeys.current.size} cached records`);
       const cache = (window as any).recordCache as Record<string, CacheEntry>;
-      // Only clear records that this instance has fetched
       fetchedRecordKeys.current.forEach(key => {
-        console.debug(`[Cache] Clearing saved record ${key}`);
         delete cache[key];
       });
       setSaveCounter(prev => prev + 1);
@@ -168,12 +165,7 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
   React.useEffect(() => {
     return () => {
       const cache = (window as any).recordCache as Record<string, CacheEntry>;
-      console.debug(`[Cache] Cleaning up ${fetchedRecordKeys.current.size} records`);
-      // Clean up all records that were fetched during this component's lifetime
       fetchedRecordKeys.current.forEach(key => {
-        if (cache[key]?.isLoading) {
-          console.debug(`[Cache] Removing pending request for ${key}`);
-        }
         delete cache[key];
       });
     };
@@ -200,50 +192,34 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
 
     // Track this record key immediately when the request is made
     if (!fetchedRecordKeys.current.has(cacheKey)) {
-      console.debug(`[Cache] Tracking new record ${cacheKey}`);
       fetchedRecordKeys.current.add(cacheKey);
     }
 
-    console.debug(`[Cache] Retrieving ${cacheKey}, retry: ${retryCount}, state:`, cache[cacheKey]);
-
     if (cache[cacheKey]?.record) {
-      console.debug(`[Cache] Hit for ${cacheKey}`);
       return cache[cacheKey].record!;
     }
 
     if (cache[cacheKey]?.isLoading) {
-      console.debug(`[Cache] Loading in progress for ${cacheKey}`);
       if (retryCount >= MAX_RETRIES) {
-        console.warn(`[Cache] Max retries reached for ${cacheKey}, forcing new request`);
         delete cache[cacheKey];
       } else {
         try {
           await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * (retryCount + 1)));
           return await retrieveRecordWithCache(entityName, recordId, retryCount + 1);
         } catch (error) {
-          console.error(`[Cache] Retry failed for ${cacheKey}`, error);
           delete cache[cacheKey];
           throw error;
         }
       }
     }
 
-    console.debug(`[Cache] Miss for ${cacheKey}, fetching...`);
     cache[cacheKey] = { isLoading: true };
 
     try {
       const record = await context.webAPI.retrieveRecord(entityName, recordId);
-      console.debug(`[Cache] Fetch success for ${cacheKey}`);
       cache[cacheKey] = { record };
       return record;
     } catch (error) {
-      console.error(`[Cache] Fetch failed for ${cacheKey}:`, {
-        error,
-        entityName,
-        recordId,
-        retryCount,
-        stackTrace: new Error().stack
-      });
       delete cache[cacheKey];
       throw error;
     }
