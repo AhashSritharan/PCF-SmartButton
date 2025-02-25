@@ -1,3 +1,7 @@
+![GitHub License](https://img.shields.io/github/license/AhashSritharan/PCF-SmartButton?style=for-the-badge)
+![GitHub Release](https://img.shields.io/github/v/release/AhashSritharan/PCF-SmartButton?style=for-the-badge)
+![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/AhashSritharan/PCF-SmartButton/total?style=for-the-badge)
+
 # PCF Smart Button Control
 
 A Power Apps Component Framework (PCF) control that provides dynamic, configurable buttons based on Dataverse settings. This control allows you to create flexible, context-aware buttons that can be used for custom actions and navigation in your Power Apps forms.
@@ -21,28 +25,6 @@ The easiest way to install the control is to download and import the solution fr
 The solution package includes:
 - The PCF Smart Button control
 - Button Configuration table
-- All required components and dependencies
-
-### Manual Installation (For Development)
-
-If you want to build and deploy the control manually:
-
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/AhashSritharan/PCF-SmartButton.git
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Build the control:
-   ```bash
-   npm run build
-   ```
-
-4. Deploy the solution to your Dynamics 365 environment.
 
 ## Configuration
 
