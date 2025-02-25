@@ -6,6 +6,8 @@
 
 A Power Apps Component Framework (PCF) control that provides dynamic, configurable buttons based on Dataverse settings. This control allows you to create flexible, context-aware buttons that can be used for custom actions and navigation in your Power Apps forms.
 
+https://github.com/user-attachments/assets/8ec991d3-855d-408f-b418-20f675882bde
+
 ## Features
 
 - **Dynamic Button Configuration**: Configure buttons directly in Dataverse without code changes
