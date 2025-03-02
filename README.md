@@ -4,6 +4,8 @@
 
 # PCF Smart Button Control
 
+<img src="https://github.com/user-attachments/assets/71f11eb6-a21b-4420-a66e-7aa98c1006e1" width="450">
+
 A Power Apps Component Framework (PCF) control that provides dynamic, configurable buttons based on Dataverse settings. This control allows you to create flexible, context-aware buttons that can be used for custom actions and navigation in your Power Apps forms.
 
 https://github.com/user-attachments/assets/8ec991d3-855d-408f-b418-20f675882bde
