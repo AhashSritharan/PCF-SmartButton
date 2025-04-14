@@ -309,40 +309,100 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
       return null;
     }
   };
-
   /**
    * Replaces dynamic field references in text with actual values
-   * Supports both direct and nested lookup field references
+   * Supports both direct and nested lookup field references and method calls
    */
   const asyncReplaceDynamicValues = async (text: string | undefined): Promise<string> => {
     if (!text || !record) return '';
-    const regex = /\{([^}]+)\}/g;
-    let newText = text;
+
+    // First, extract all field references and method calls
+    const complexRegex = /\{([^}]+)\}(\.[a-zA-Z0-9_]+(?:\([^()]*\))?)?/g;
+    const fieldRefs: { fullMatch: string; fieldPath: string; methodCall?: string }[] = [];
+
     let match: RegExpExecArray | null;
+    while ((match = complexRegex.exec(text)) !== null) {
+      fieldRefs.push({
+        fullMatch: match[0],
+        fieldPath: match[1],
+        methodCall: match[2]
+      });
+    }
 
-    while ((match = regex.exec(text)) !== null) {
-      const [fullMatch, token] = match;
-      let value;
+    // Create a map to hold all the resolved values
+    const resolvedValues = new Map<string, any>();
 
-      if (token.includes('.')) {
-        const parts = token.split('.');
+    // Resolve all field values
+    for (const ref of fieldRefs) {
+      let fieldValue;
+
+      if (ref.fieldPath.includes('.')) {
+        const parts = ref.fieldPath.split('.');
         const lookupPath = parts.slice(0, -1);
         const finalField = parts[parts.length - 1];
 
         // Special handling for ID field
         if (finalField.toLowerCase() === 'id') {
           const lookupIdField = `_${lookupPath[0]}_value`;
-          value = record[lookupIdField] ?? fullMatch;
+          fieldValue = record[lookupIdField] ?? ref.fullMatch;
         } else {
           // For other fields, fetch the related records through the lookup chain
           const relatedRecord = await fetchRelatedRecord(lookupPath);
-          value = relatedRecord?.[finalField] ?? fullMatch;
+          fieldValue = relatedRecord?.[finalField];
         }
       } else {
-        value = record[token] ?? fullMatch;
+        fieldValue = record[ref.fieldPath];
       }
 
-      newText = newText.replace(fullMatch, String(value));
+      // Store the resolved field value
+      resolvedValues.set(ref.fieldPath, fieldValue);
+    }
+
+    // Now replace each reference with its resolved value and apply method calls
+    let newText = text;
+    for (const ref of fieldRefs) {
+      let resolvedValue = resolvedValues.get(ref.fieldPath);
+
+      // Handle null or undefined values
+      if (resolvedValue === undefined || resolvedValue === null) {
+        resolvedValue = '';
+      } else if (ref.methodCall) {
+        // Apply method call if one is present
+        try {
+          // Convert date strings to Date objects for date methods
+          if (typeof resolvedValue === 'string' &&
+            /^\d{4}-\d{2}-\d{2}(T|\s)\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})?$/.test(resolvedValue) &&
+            (ref.methodCall.startsWith('.get') || ref.methodCall.startsWith('.toLocale'))) {
+            resolvedValue = new Date(resolvedValue);
+          }
+
+          // Execute the method call dynamically
+          const methodName = ref.methodCall.substring(1).split('(')[0];
+          const argsMatch = /\((.*)\)/.exec(ref.methodCall);
+          const args = argsMatch ?
+            argsMatch[1].split(',').map(arg => arg.trim()).filter(arg => arg !== '') :
+            [];
+
+          if (typeof resolvedValue[methodName] === 'function') {
+            // Parse arguments if they exist
+            const parsedArgs = args.map(arg => {
+              try {
+                return JSON.parse(arg);
+              } catch {
+                // If not valid JSON, treat as string
+                return arg.replace(/^['"](.*)['"]$/, '$1'); // Strip quotes
+              }
+            });
+
+            resolvedValue = resolvedValue[methodName](...parsedArgs);
+          }
+        } catch (error) {
+          console.warn(`Error applying method ${ref.methodCall} to value:`, resolvedValue, error);
+        }
+      }
+
+      // Replace in the text
+      newText = newText.replace(ref.fullMatch, String(resolvedValue));
     }
 
     return newText;
@@ -370,12 +430,12 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
             theia_buttontooltip: await asyncReplaceDynamicValues(config.theia_buttontooltip),
             theia_url: await asyncReplaceDynamicValues(config.theia_url),
             theia_actionscript: await asyncReplaceDynamicValues(config.theia_actionscript),
-            theia_visibilityexpression: await asyncReplaceDynamicValues(config.theia_visibilityexpression)
+            theia_visibilityexpression: config.theia_visibilityexpression
           };
 
           // Only include buttons that pass visibility check
           const isVisible = !resolvedConfig.theia_visibilityexpression ||
-            expressionEvaluator?.evaluate(resolvedConfig.theia_visibilityexpression);
+            await expressionEvaluator?.evaluateAsync(resolvedConfig.theia_visibilityexpression);
 
           if (isVisible) {
             newConfigs.push({ ...resolvedConfig, isVisible });
