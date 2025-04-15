@@ -361,11 +361,10 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
     // Now replace each reference with its resolved value and apply method calls
     let newText = text;
     for (const ref of fieldRefs) {
-      let resolvedValue = resolvedValues.get(ref.fieldPath);
-
-      // Handle null or undefined values
-      if (resolvedValue === undefined || resolvedValue === null) {
-        resolvedValue = '';
+      let resolvedValue = resolvedValues.get(ref.fieldPath);      // Handle null or undefined values
+      if (resolvedValue === undefined) {
+        // Keep the original token text if the field doesn't exist in the record
+        resolvedValue = ref.fullMatch;
       } else if (ref.methodCall) {
         // Apply method call if one is present
         try {
