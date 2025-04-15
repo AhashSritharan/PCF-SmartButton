@@ -66,10 +66,35 @@ Action Script: window.open("{parentcustomerid.parentaccountid.websiteurl}")
 
 ### Dynamic Values and Tokens
 
-All text fields (Label, Tooltip, URL, Visibility Expression, and Action Script) support dynamic tokens:
+All text fields (Label, Tooltip, URL, Visibility Expression, and Action Script) support dynamic tokens with enhanced capabilities:
 - Use curly braces to reference field values: `{fieldname}`
 - Access related records using dot notation: `{lookup.fieldname}`
 - Chain multiple lookups: `{parentcustomerid.parentaccountid.websiteurl}`
+- Apply methods to field values: `{createdon}.toLocaleDateString()`, `{revenue}.toFixed(2)`
+
+#### Enhanced Expression Examples
+
+These expression enhancements work across all dynamic fields (Label, Tooltip, URL, Action Script, and Visibility Expression):
+
+```javascript
+// Date formatting in labels or tooltips
+Button Label: Created on {createdon}.toLocaleDateString()
+
+// Number formatting
+Button Label: Revenue: ${revenue}.toFixed(2)
+
+// String manipulation in tooltips
+Button Tooltip: {description}.substring(0, 50) + "..."
+
+// Complex formatting in URLs
+URL: https://contoso.com/search?q={name}.toLowerCase().replace(" ", "+")
+
+// Date comparisons in visibility expressions
+Visibility Expression: {createdon}.getDay() === 1  // Show only on Mondays
+
+// Related record fields with method calls
+Button Label: {parentcustomerid.name}.toUpperCase() - {revenue}.toLocaleString()
+```
 
 ### Advanced Features
 
@@ -89,14 +114,32 @@ All text fields (Label, Tooltip, URL, Visibility Expression, and Action Script) 
 #### Visibility Expressions
 JavaScript expressions that determine button visibility:
 ```javascript
-// Show only if website URL exists
+// Simple field value checks
 {parentcustomerid.parentaccountid.websiteurl} != null
 
-// Show based on status
+// Status checks
 {statuscode} === 1
 
-// Complex conditions
+// Numeric comparisons
 {revenue} > 10000 && {statuscode} === 1
+
+// Date comparisons (automatic type conversion)
+{createdon} > new Date('2025-01-01')
+
+// Date methods
+{createdon}.getDay() === 1  // Show only on Mondays
+
+// Working with related record dates
+{parentcustomerid.parentaccountid.createdon}.getFullYear() === 2025
+
+// Number formatting methods
+{revenue}.toFixed(2) === "1000.00"
+
+// String methods
+{name}.toLowerCase().includes("microsoft")
+
+// Method chaining
+{description}.substring(0, 10).length > 5
 ```
 
 ## Development
