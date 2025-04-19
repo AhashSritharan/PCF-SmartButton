@@ -67,7 +67,7 @@ const useFetchButtonConfigs = (
                     filter += ` and ${buttonFilter}`;
                 }
 
-                const query = `?$select=theia_buttonlabel,theia_url,theia_buttonposition,theia_buttontooltip,theia_tablename,theia_buttonicon,theia_visibilityexpression,theia_showaslink,theia_actionscript&$filter=${filter}&$orderby=theia_buttonposition asc`;
+                const query = `?$select=theia_buttonlabel,theia_url,theia_buttonposition,theia_buttontooltip,theia_tablename,theia_buttonicon,theia_visibilityexpression,theia_showaslink,theia_actionscript,theia_backgroundcolor&$filter=${filter}&$orderby=theia_buttonposition asc`;
 
                 const result = await context.webAPI.retrieveMultipleRecords(
                     "theia_buttonconfiguration",

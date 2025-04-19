@@ -2,6 +2,9 @@
 import * as React from "react";
 import { DefaultButton, TooltipHost, Link, FontIcon, MessageBar, MessageBarType } from "@fluentui/react";
 import { ExpressionEvaluator } from "./ExpressionEvaluator";
+import { ColorUtils } from "./ColorUtils";
+
+// We've moved the color utilities to a separate file: ./ColorUtils.ts
 
 // Add types to window object for global record cache
 type RecordCache = Record<string, {
@@ -25,6 +28,7 @@ export interface ButtonConfig {
   theia_visibilityexpression?: string;
   theia_showaslink: boolean;
   theia_actionscript?: string;
+  theia_backgroundcolor?: string;  // Added to support custom button background color
   isVisible?: boolean;  // Added to support visibility state
 }
 
@@ -48,9 +52,34 @@ interface ButtonRendererProps {
 
 // Define the component first, then memoize it
 const ButtonRendererBase: React.FC<ButtonRendererProps> = ({ config, onClick }) => {
+
+  const backgroundColor = config.theia_backgroundcolor ? ColorUtils.normalizeColor(config.theia_backgroundcolor) : undefined;
+  const hoverColor = backgroundColor ? ColorUtils.getHoverColor(backgroundColor) : undefined;
+  const pressedColor = backgroundColor ? ColorUtils.getPressedColor(backgroundColor) : undefined;
+
+  // Determine text colors for better contrast
+  const useWhiteText = backgroundColor ? ColorUtils.shouldUseWhiteText(backgroundColor) : false;
+  const textColor = useWhiteText ? '#ffffff' : '#000000';
+
+  // Ensure hover and pressed states also have appropriate text contrast
+  const hoverTextColor = hoverColor ? (ColorUtils.shouldUseWhiteText(hoverColor) ? '#ffffff' : '#000000') : textColor;
+  const pressedTextColor = pressedColor ? (ColorUtils.shouldUseWhiteText(pressedColor) ? '#ffffff' : '#000000') : textColor;
+
   return (
     config.theia_showaslink ? (
-      <Link href={config.theia_url} target="_blank" rel="noopener noreferrer">
+      <Link
+        href={config.theia_url}
+        target="_blank"
+        rel="noopener noreferrer"
+        styles={backgroundColor ? {
+          root: {
+            color: backgroundColor,
+            '&:hover': {
+              color: hoverColor
+            }
+          }
+        } : undefined}
+      >
         {config.theia_buttonlabel}
       </Link>
     ) : (
@@ -60,8 +89,21 @@ const ButtonRendererBase: React.FC<ButtonRendererProps> = ({ config, onClick }) 
           root: {
             minWidth: 'auto',
             padding: '0 12px',
-            margin: 0
-          }
+            margin: 0,
+            backgroundColor: backgroundColor,
+            borderColor: backgroundColor,
+            color: backgroundColor ? textColor : undefined,
+          },
+          rootHovered: backgroundColor ? {
+            backgroundColor: hoverColor,
+            borderColor: hoverColor,
+            color: hoverTextColor,
+          } : undefined,
+          rootPressed: backgroundColor ? {
+            backgroundColor: pressedColor,
+            borderColor: pressedColor,
+            color: pressedTextColor,
+          } : undefined
         }}
       >
         {config.theia_buttonicon && (
@@ -429,6 +471,7 @@ export const SmartButton: React.FC<SmartButtonProps> = ({ configs, context, reco
             theia_buttontooltip: await asyncReplaceDynamicValues(config.theia_buttontooltip),
             theia_url: await asyncReplaceDynamicValues(config.theia_url),
             theia_actionscript: await asyncReplaceDynamicValues(config.theia_actionscript),
+            theia_backgroundcolor: config.theia_backgroundcolor,
             theia_visibilityexpression: config.theia_visibilityexpression
           };
 

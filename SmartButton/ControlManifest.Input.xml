@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <manifest>
   <!-- Smart Button PCF Control - A dynamic button control that renders configurable buttons based on Dataverse settings -->
-  <control namespace="Theia" constructor="SmartButtonControl" version="1.0.1" display-name-key="SmartButton" description-key="Dynamic button control for custom actions and navigation based on configurations." control-type="virtual" >
+  <control namespace="Theia" constructor="SmartButtonControl" version="1.1.0" display-name-key="SmartButton" description-key="Dynamic button control for custom actions and navigation based on configurations." control-type="virtual" >
     <!--external-service-usage node declares whether this 3rd party PCF control is using external service or not, if yes, this control will be considered as premium and please also add the external domain it is using.
     If it is not using any external service, please set the enabled="false" and DO NOT add any domain below. The "enabled" will be false by default.
     Example1:
