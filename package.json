@@ -4,10 +4,12 @@
   "description": "Project containing your PowerApps Component Framework (PCF) control.",
   "scripts": {
     "build": "pcf-scripts build",
+    "build:prod": "pcf-scripts build --buildMode production",
     "clean": "pcf-scripts clean",
     "lint": "pcf-scripts lint",
     "lint:fix": "pcf-scripts lint fix",
     "rebuild": "pcf-scripts rebuild",
+    "rebuild:prod": "pcf-scripts rebuild --buildMode production",
     "start": "pcf-scripts start",
     "start:watch": "pcf-scripts start watch",
     "refreshTypes": "pcf-scripts refreshTypes"

@@ -180,6 +180,11 @@ JavaScript expressions that determine button visibility:
    npm run build
    ```
 
+   For production builds (optimized, no eval devtools):
+   ```bash
+   npm run build:prod
+   ```
+
 3. Start the test harness:
    ```bash
    npm start watch
@@ -204,9 +209,39 @@ JavaScript expressions that determine button visibility:
 
 ### Building
 
+Development build:
 ```bash
 npm run build
 ```
+
+Production build (recommended for creating release solutions):
+```bash
+npm run build:prod
+```
+
+> **Important**: Always use `npm run build:prod` before packaging solutions for release. This ensures the bundle is optimized and does not contain eval devtools that are inappropriate for production environments.
+
+### Building the Solution
+
+To create a production-ready managed solution:
+
+1. Build the PCF control in production mode:
+   ```bash
+   npm run build:prod
+   ```
+
+2. Build the solution using MSBuild with Release configuration:
+   ```bash
+   msbuild /t:build /p:Configuration=Release /restore
+   ```
+
+   Or navigate to the Solution folder and build:
+   ```bash
+   cd Solution\SmartButtonPCF
+   msbuild /t:build /p:Configuration=Release /restore
+   ```
+
+The solution ZIP files will be generated in the `Solution\SmartButtonPCF\bin\Release` folder.
 
 ### Testing
 
